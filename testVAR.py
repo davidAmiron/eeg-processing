@@ -65,7 +65,7 @@ for name, column in df.diff().dropna().diff().dropna().iteritems():
     print()
 
 # Granger test for causality
-'''maxlag = 12
+maxlag = 12
 test = 'ssr_chi2test' # One of 'lrtest', 'params_ftest', 'ssr_chi2test', 'ssr_ftest'
 def granger_causation_matrix(data, variables, test='ssr_chi2test', zero_diagonal=False, verbose=False):
     """Check Granger Causality of all possible combinations of the Time series.
@@ -110,7 +110,7 @@ plt.show()
 granger_df_binary = pd.DataFrame().reindex_like(granger_df)
 granger_df_binary[granger_df < 0.01] = 1
 granger_df_binary.fillna(0, inplace=True)
-print(granger_df_binary)'''
+print(granger_df_binary)
 
 # Split data into train and test
 nobs = 4
