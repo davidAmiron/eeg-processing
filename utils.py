@@ -113,8 +113,6 @@ def load_mur_data(database_loc, sub_ref_avg=False):
         recordings_index: List of strings, one for each subject-block pair (1 recording)
         
     """
-    assert(num_reference_electrodes <= 2)
-    assert(num_signal_electrodes <= 64)
 
     # Get list of data files
     data_path = os.path.join(database_loc, 'data/Exp2b')
