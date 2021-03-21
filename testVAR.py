@@ -118,6 +118,9 @@ df_train, df_test = df[0:-nobs], df[-nobs:]
 #print(df_test.shape)
 
 # Difference dataframe to make it stationary (see article, am skipping some steps just to use the model)
+print("AHH")
+print(df_train.diff())
+sys.exit(0)
 df_train_differenced = df_train.diff().dropna().diff().dropna()
 
 # Model with different orders

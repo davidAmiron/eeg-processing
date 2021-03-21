@@ -24,63 +24,41 @@ database_loc = sys.argv[1]
 output_file = sys.argv[2]
 
 # Parameters
-num_signal_electrodes = 1       # Test run for ony first electrode
+num_signal_electrodes = 1
 num_reference_electrodes = 2
-
-# Get list of data files
-data_path = os.path.join(database_loc, 'data/Exp2b')
-exclude_files = ['Cap_coords_64.csv', 'README.txt', 'Protocol.png']
-data_files = [f for f in listdir(data_path) if os.path.isfile(os.path.join(data_path, f)) and f not in exclude_files]
-data_files.sort() # Put in alphanumerical order
-
-# Functions for names of rows and columns of output
-def subj_block_str(subject, block):
-    return 'subj_{}_block_{}'.format(subject, block)
-def signal_index_str(index):
-    return 'signal_{}'.format(index)
-def reference_index_str(index):
-    return 'reference_{}'.format(index)
 
 # Parse files into datastructure
 print('Loading data...')
-data = {}
-df_index = []
-df_cols = []
-for filename in data_files:
-    filetype = filename.split('.')[-1]
-    if filetype == 'mat':
-        file_fields = filename[5:].split('.')[0].split('_')
-        experiment = file_fields[0]
-        subject = file_fields[2]
-        block = file_fields[3]
-        data.setdefault(experiment, {}).setdefault(subject, {})[block] = scipy.io.loadmat(os.path.join(data_path, filename))
-        df_index.append(subj_block_str(subject, block))
+data, columns, recordings_index = load_mur_data(database_loc)
+print('Data loaded')
+#print(data['2b']['001']['01']['reference_0'])
+#sys.exit(0)
+#print(recordings_index)
 
-    elif filetype == 'txt':
-        # Ignoring txt files for now
-        pass
-
-for i in range(num_reference_electrodes):
+"""for i in range(num_reference_electrodes):
     df_cols.append(reference_index_str(i))
 for i in range(num_signal_electrodes):
-    df_cols.append(signal_index_str(i))
+    df_cols.append(signal_index_str(i))"""
 
-print('Data loaded')
 
 # Run stationarity test on data
 print('Running stationarity tests')
-df_pvalues = pd.DataFrame(index=df_index, columns=df_cols)
+df_pvalues = pd.DataFrame(index=recordings_index, columns=columns)
 for subject, subject_data in data['2b'].items():
     for block, block_data in subject_data.items():
         print('Processing subject {}, block {}'.format(subject, block))
         for i in range(num_reference_electrodes):
             print('Running ADF test for subject {}, block {}, reference electrode {}.'.format(subject, block, i))
             df_pvalues.loc[subj_block_str(subject, block), reference_index_str(i)] = \
-                    adf_test(data['2b'][subject][block]['Reference'][0, :, i], print_results=True)
+                    adf_test(data['2b'][subject][block][reference_index_str(i)].diff().dropna(),
+                             name=subj_block_str(subject, block), print_results=True)
         for i in range(num_signal_electrodes):
             print('Running ADF test for subject {}, block {}, signal electrode {}.'.format(subject, block, i))
             df_pvalues.loc[subj_block_str(subject, block), signal_index_str(i)] = \
-                    adf_test(data['2b'][subject][block]['Signal'][0, :, i], print_results=True)
+                    adf_test(data['2b'][subject][block][signal_index_str(i)].diff().dropna(),
+                             name=subj_block_str(subject, block), print_results=True)
+        break
+    break
 
 print('P Values:')
 print(df_pvalues)
@@ -88,10 +66,6 @@ print(df_pvalues)
 # Save p values
 df_pvalues.to_csv(output_file)
 
-
 run_time = datetime.now() - start_time
 print('Time to run: {}'.format(run_time))
 
-#adf_test(a, name='test', print_results=True)
-#plt.plot(a)
-#plt.show()

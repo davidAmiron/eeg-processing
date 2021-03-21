@@ -1,8 +1,12 @@
 """Utility for data analysis"""
 
+from os import listdir
+import os.path
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy
 
 from statsmodels.tsa.api import VAR
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -83,3 +87,67 @@ def granger_causation_matrix(data, variables, test='ssr_chi2test', zero_diagonal
     df.columns = [var + '_x' for var in variables]
     df.index = [var + '_y' for var in variables]
     return df
+
+# Functions for names of rows and columns of output
+def subj_block_str(subject, block):
+    return 'subj_{}_block_{}'.format(subject, block)
+def signal_index_str(index):
+    return 'signal_{}'.format(index)
+def reference_index_str(index):
+    return 'reference_{}'.format(index)
+
+def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrodes=64):
+    """Read in MURIBCI database
+
+    Args:
+        database_loc (str): Location of MURIBCI folder
+        num_reference_electrodes (int): The number of reference elctrodes to read in
+        num_signal_electrodes (int): The number of signal electrodes to read in
+
+    Returns:
+        A tuple containing (data, columns, recordings_index)
+        data: dictionary indexed with [experiment][subject][block]
+        columns: the columns (reference and signals)
+        recordings_index: List of strings, one for each subject-block pair (1 recording)
+        
+    """
+    assert(num_reference_electrodes <= 2)
+    assert(num_signal_electrodes <= 64)
+
+    # Get list of data files
+    data_path = os.path.join(database_loc, 'data/Exp2b')
+    exclude_files = ['Cap_coords_64.csv', 'README.txt', 'Protocol.png']
+    data_files = [f for f in listdir(data_path) if os.path.isfile(os.path.join(data_path, f)) and f not in exclude_files]
+    data_files.sort() # Put in alphanumerical order
+
+    data = {}
+    columns = []
+    recordings_index = []
+
+    # Create columns
+    for i in range(num_reference_electrodes):
+        columns.append(reference_index_str(i))
+    for i in range(num_signal_electrodes):
+        columns.append(signal_index_str(i))
+
+    # Read data
+    for filename in data_files:
+        filetype = filename.split('.')[-1]
+        if filetype == 'mat':
+            file_fields = filename[5:].split('.')[0].split('_')
+            experiment = file_fields[0]
+            subject = file_fields[2]
+            block = file_fields[3]
+            raw_read = scipy.io.loadmat(os.path.join(data_path, filename))
+            all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
+
+            df = pd.DataFrame(all_data, columns=columns)
+
+            data.setdefault(experiment, {}).setdefault(subject, {})[block] = df
+            recordings_index.append(subj_block_str(subject, block))
+
+        elif filetype == 'txt':
+            # Ignoring txt files for now
+            pass
+
+    return data, columns, recordings_index
