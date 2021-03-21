@@ -99,13 +99,11 @@ def reference_index_str(index):
 def read_file_raw(database_loc, filename):
     return scipy.io.loadmat(os.path.join(database_loc, 'data/Exp2b', filename))
 
-def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrodes=64, sub_ref_avg=False):
+def load_mur_data(database_loc, sub_ref_avg=False):
     """Read in MURIBCI database
 
     Args:
         database_loc (str): Location of MURIBCI folder
-        num_reference_electrodes (int): The number of reference elctrodes to read in
-        num_signal_electrodes (int): The number of signal electrodes to read in
         sub_ref_avg (bool): True to average the electrodes and subtract them from the signal
 
     Returns:
@@ -128,6 +126,9 @@ def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrode
     columns = []
     ref_columns = []
     recordings_index = []
+
+    num_reference_electrodes = 2
+    num_signal_electrodes = 64
 
     # Create columns
     for i in range(num_reference_electrodes):

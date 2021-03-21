@@ -1,2 +1,4 @@
 *.swp
-MURIBCI
+*.csv
+MURIBCI/
+__pycache__/

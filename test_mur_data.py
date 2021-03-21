@@ -24,7 +24,7 @@ database_loc = sys.argv[1]
 output_file = sys.argv[2]
 
 # Parameters
-num_signal_electrodes = 1
+num_signal_electrodes = 64
 num_reference_electrodes = 2
 
 # Parse files into datastructure
@@ -34,11 +34,6 @@ print('Data loaded')
 #print(data['2b']['002']['06']['signal_0'])
 #sys.exit(0)
 #print(recordings_index)
-
-"""for i in range(num_reference_electrodes):
-    df_cols.append(reference_index_str(i))
-for i in range(num_signal_electrodes):
-    df_cols.append(signal_index_str(i))"""
 
 
 # Run stationarity test on data
