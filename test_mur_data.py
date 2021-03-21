@@ -29,9 +29,9 @@ num_reference_electrodes = 2
 
 # Parse files into datastructure
 print('Loading data...')
-data, columns, recordings_index = load_mur_data(database_loc)
+data, columns, recordings_index = load_mur_data(database_loc, sub_ref_avg=True)
 print('Data loaded')
-#print(data['2b']['001']['01']['reference_0'])
+#print(data['2b']['002']['06']['signal_0'])
 #sys.exit(0)
 #print(recordings_index)
 

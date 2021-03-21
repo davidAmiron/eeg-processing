@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import scipy
+import scipy.io
 
 from statsmodels.tsa.api import VAR
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -96,13 +96,17 @@ def signal_index_str(index):
 def reference_index_str(index):
     return 'reference_{}'.format(index)
 
-def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrodes=64):
+def read_file_raw(database_loc, filename):
+    return scipy.io.loadmat(os.path.join(database_loc, 'data/Exp2b', filename))
+
+def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrodes=64, sub_ref_avg=False):
     """Read in MURIBCI database
 
     Args:
         database_loc (str): Location of MURIBCI folder
         num_reference_electrodes (int): The number of reference elctrodes to read in
         num_signal_electrodes (int): The number of signal electrodes to read in
+        sub_ref_avg (bool): True to average the electrodes and subtract them from the signal
 
     Returns:
         A tuple containing (data, columns, recordings_index)
@@ -122,11 +126,13 @@ def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrode
 
     data = {}
     columns = []
+    ref_columns = []
     recordings_index = []
 
     # Create columns
     for i in range(num_reference_electrodes):
         columns.append(reference_index_str(i))
+        ref_columns.append(reference_index_str(i))
     for i in range(num_signal_electrodes):
         columns.append(signal_index_str(i))
 
@@ -138,9 +144,13 @@ def load_mur_data(database_loc, num_reference_electrodes=2, num_signal_electrode
             experiment = file_fields[0]
             subject = file_fields[2]
             block = file_fields[3]
-            raw_read = scipy.io.loadmat(os.path.join(data_path, filename))
-            all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
+            raw_read = read_file_raw(database_loc, filename)
 
+            if sub_ref_avg:
+                ref_avg = raw_read['Reference'][0].mean(axis=1)
+                raw_read['Signal'][0] -= np.expand_dims(ref_avg, 1)
+
+            all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
             df = pd.DataFrame(all_data, columns=columns)
 
             data.setdefault(experiment, {}).setdefault(subject, {})[block] = df
