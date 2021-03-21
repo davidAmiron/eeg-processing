@@ -57,8 +57,6 @@ for subject, subject_data in data['2b'].items():
             df_pvalues.loc[subj_block_str(subject, block), signal_index_str(i)] = \
                     adf_test(data['2b'][subject][block][signal_index_str(i)].diff().dropna(),
                              name=subj_block_str(subject, block), print_results=True)
-        break
-    break
 
 print('P Values:')
 print(df_pvalues)
