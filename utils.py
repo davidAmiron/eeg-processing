@@ -96,19 +96,33 @@ def signal_index_str(index):
 def reference_index_str(index):
     return 'reference_{}'.format(index)
 
-def read_file_raw(database_loc, filename):
-    return scipy.io.loadmat(os.path.join(database_loc, 'data/Exp2b', filename))
+def read_file_raw(database_loc, filename, sub_ref_avg):
+    """Read a file in the database
+
+    Args:
+        database_loc (str): Location of MURIBCI folder
+        filename (str): The file to read
+        sub_ref_avg (bool): True to average the reference electrodes and subtract them from the signal
+    """
+    raw_read = scipy.io.loadmat(os.path.join(database_loc, 'data/Exp2b', filename))
+    if sub_ref_avg:
+        ref_avg = raw_read['Reference'][0].mean(axis=1)
+        raw_read['Signal'][0] -= np.expand_dims(ref_avg, 1)
+
+    all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
+    df = pd.DataFrame(all_data, columns=columns)
+    return df
 
 def load_mur_data(database_loc, sub_ref_avg=False):
     """Read in MURIBCI database
 
     Args:
         database_loc (str): Location of MURIBCI folder
-        sub_ref_avg (bool): True to average the electrodes and subtract them from the signal
+        sub_ref_avg (bool): True to average the reference electrodes and subtract them from the signal
 
     Returns:
         A tuple containing (data, columns, recordings_index)
-        data: dictionary indexed with [experiment][subject][block]
+        data: dictionary indexed with [experiment][subject][block] -> pandas Dataframe of data
         columns: the columns (reference and signals)
         recordings_index: List of strings, one for each subject-block pair (1 recording)
         
@@ -145,14 +159,7 @@ def load_mur_data(database_loc, sub_ref_avg=False):
             experiment = file_fields[0]
             subject = file_fields[2]
             block = file_fields[3]
-            raw_read = read_file_raw(database_loc, filename)
-
-            if sub_ref_avg:
-                ref_avg = raw_read['Reference'][0].mean(axis=1)
-                raw_read['Signal'][0] -= np.expand_dims(ref_avg, 1)
-
-            all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
-            df = pd.DataFrame(all_data, columns=columns)
+            df = read_file_raw(database_loc, filename, sub_ref_avg=sub_ref_avg)
 
             data.setdefault(experiment, {}).setdefault(subject, {})[block] = df
             recordings_index.append(subj_block_str(subject, block))

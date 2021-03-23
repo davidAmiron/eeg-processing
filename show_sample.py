@@ -24,6 +24,9 @@ raw = read_file_raw(database_loc, filename)
 
 sig_type = electrode.split('_')[0]
 sig_type = sig_type[0].capitalize() + sig_type[1:]
+if electrode.find('_') == -1:
+    print("Invalid electrode. should be 'reference_0', 'reference_1', or 'signal_0' through 'signal_64'")
+    sys.exit(1)
 sig_num = int(electrode.split('_')[1])
 
 data = raw[sig_type][0, :, sig_num]
