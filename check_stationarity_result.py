@@ -7,6 +7,8 @@ import numpy as np
 significance_values = [0.05, 0.01, 0.005]
 files = [
     'results/stationarity-full-result.csv',
+    'results/stationarity-full-sra-result.csv',
+    'results/stationarity-full-diff-result.csv',
     'results/stationarity-full-diff-sra-result.csv'
 ]
 

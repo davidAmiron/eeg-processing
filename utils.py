@@ -52,7 +52,7 @@ def adf_test(series, signif=0.05, name='', print_results=False):
 
     return pvalue
 
-def granger_causation_matrix(data, variables, test='ssr_chi2test', zero_diagonal=False, print_results=False):
+def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_diagonal=False, print_results=False):
     """Check Granger Causality of all possible combinations of the Time series.
 
     The rows are the response variable, columns are predictors. The values in the table 
@@ -63,13 +63,15 @@ def granger_causation_matrix(data, variables, test='ssr_chi2test', zero_diagonal
     Args:
         data: pandas dataframe containing the time series variables
         variables: list containing names of the time series variables to analyze
+        maxlag: The maximum lag to go to
         test: what test to use ('lrtest', 'params_ftest', 'ssr_chi2test', 'ssr_ftest')
         zero_diagonal: True to set all diagonal entries to zero
         print_results: True to print results
 
     Returns:
         Pandas Dataframe, matrix of causations. Each row is a response variable, and
-        each column is a predictor (denoted by names ending in '_y' or '_x'
+        each column is a predictor (denoted by names ending in '_y' or '_x'). The pvalue
+        reported is the minimum of the different lags up to max_lag
 
     """
     df = pd.DataFrame(np.zeros((len(variables), len(variables))), columns=variables, index=variables)
@@ -78,7 +80,7 @@ def granger_causation_matrix(data, variables, test='ssr_chi2test', zero_diagonal
             if zero_diagonal and col == row:
                 df.loc[row, col] = 0
                 continue
-            test_result = grangercausalitytests(data[[row, col]], maxlag=maxlag, verbose=False)
+            test_result = grangercausalitytests(data[[row, col]], maxlag=maxlag, verbose=print_results)
             p_values = [round(test_result[i+1][0][test][1], 4) for i in range(maxlag)]
             if print_results:
                 print(f'Y = {row}, X = {col}, P Values = {p_values}')
@@ -109,6 +111,15 @@ def read_file_raw(database_loc, filename, sub_ref_avg):
         ref_avg = raw_read['Reference'][0].mean(axis=1)
         raw_read['Signal'][0] -= np.expand_dims(ref_avg, 1)
 
+    num_reference_electrodes = 2
+    num_signal_electrodes = 64
+
+    columns = []
+    for i in range(num_reference_electrodes):
+        columns.append(reference_index_str(i))
+    for i in range(num_signal_electrodes):
+        columns.append(signal_index_str(i))
+
     all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
     df = pd.DataFrame(all_data, columns=columns)
     return df
@@ -135,19 +146,7 @@ def load_mur_data(database_loc, sub_ref_avg=False):
     data_files.sort() # Put in alphanumerical order
 
     data = {}
-    columns = []
-    ref_columns = []
     recordings_index = []
-
-    num_reference_electrodes = 2
-    num_signal_electrodes = 64
-
-    # Create columns
-    for i in range(num_reference_electrodes):
-        columns.append(reference_index_str(i))
-        ref_columns.append(reference_index_str(i))
-    for i in range(num_signal_electrodes):
-        columns.append(signal_index_str(i))
 
     # Read data
     for filename in data_files:
@@ -158,6 +157,7 @@ def load_mur_data(database_loc, sub_ref_avg=False):
             subject = file_fields[2]
             block = file_fields[3]
             df = read_file_raw(database_loc, filename, sub_ref_avg=sub_ref_avg)
+            columns = df.columns
 
             data.setdefault(experiment, {}).setdefault(subject, {})[block] = df
             recordings_index.append(subj_block_str(subject, block))
