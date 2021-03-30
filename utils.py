@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.io
 
-from statsmodels.tsa.api import VAR
+from statsmodels.tsa.api import VAR, AutoReg
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
 
 # Automated Dickey-Fuller Test
@@ -89,6 +89,105 @@ def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_
     df.columns = [var + '_x' for var in variables]
     df.index = [var + '_y' for var in variables]
     return df
+
+def modified_granger_test(data_all, variable_caused, variable_causing, num_models,
+                          train_time, pred_ahead_time, lags=10, fs=2000, difference=False):
+    """Modified granger test
+
+    In calculation of the F statistic, instead of using RSS, use sum of squares of
+    prediction error on unseen data. These values will come from fitting multiple
+    models and forecasting pred_ahead_time seconds into the future.
+
+    Args:
+        data_all (pd.DataFrame): The dataframe of data to use
+        variable_caused (string): The column of data for the variable being caused
+        variable_causing (string): The column of data for the variable causing the other
+        num_models (int): The number of models to train and predictions to make
+        train_time (float): The length of time of data for training each model (seconds)
+        pred_ahead_time (float): The time into the future to use for prediction for F statistic (seconds)
+        lags (int): Number of lags in models
+        fs (int): Sampling frequency of data
+        difference (bool): True to difference the data
+
+    Notes:
+        Models are spaced out as much as possible along data
+    """
+    train_timesteps = int(train_time * fs)
+    pred_timesteps = int(pred_ahead_time * fs)
+    print(data_all)
+
+    #caused = data[[variable_caused]]
+    #causing = data[[variable_causing]]
+    data = data_all[[variable_caused, variable_causing]]
+    data_full = data
+    data_restricted = data[[variable_caused]]
+
+    col_caused_index = np.where(data.columns.values == variable_caused)[0][0]
+
+    # Difference data
+    if difference:
+        #caused = caused.diff().dropna()
+        #causing = causing.diff().dropna()
+        #data = data.diff().dropna()
+        data_full = data_full.diff().dropna()
+        data_restricted = data_restricted.diff().dropna()
+
+
+    # Make sure enough samples are available
+    num_samples = data.shape[0]
+    print('num_samples: {}'.format(num_samples))
+    num_samples_req = train_timesteps + pred_timesteps + num_models - 1
+    if num_samples_req > num_samples:
+        raise ValueError('Number of samples required ({}) is greater than number of samples available ({}).'.format(
+            num_samples_req, num_samples)
+            )
+
+    num_pred_available = num_samples - (train_timesteps + pred_timesteps)
+    pred_spacing = int(num_pred_available / num_models)
+
+    for i in range(0, num_pred_available, pred_spacing):
+
+        # Create train and test data
+        print('i: {}, i + train_timesteps: {}'.format(i, i + train_timesteps))
+        train_full = data_full[i:i+train_timesteps]
+        train_restricted = data_restricted[i:i+train_timesteps]
+        
+        forecast_input_full = train_full[-lags:]
+        forecast_input_restricted = train_restricted[-lags:]
+
+        test_value = data_restricted.iloc[i + train_timesteps + pred_timesteps - 1]
+
+        # Train models
+        model_full = VAR(train_full.values)
+        model_restricted = AutoReg(train_restricted.values, lags)
+
+        model_full_fitted = model_full.fit(lags)
+        model_restricted_fit = model_restricted.fit()
+
+        # Forecast
+        pred_full = model_full_fitted.forecast(y=forecast_input_full.values, steps=pred_timesteps)[:, col_caused_index]
+        pred_restricted = model_restricted.predict(model_restricted_fit.params,
+                train_timesteps, train_timesteps + pred_timesteps - 1)
+
+        # Un-difference values
+        if difference:
+            pred_full = data[[variable_caused]].values[i + train_timesteps - 1] + pred_full.cumsum()
+            pred_restricted = data[[variable_caused]].values[i + train_timesteps - 1] + pred_restricted.cumsum()
+            #sys.exit(0)
+
+        print(pred_full)
+        print(pred_restricted)
+        plt.plot(pred_full, label='Full')
+        plt.plot(pred_restricted, label='Restricted')
+        print(data_restricted.values[i + train_timesteps: i + train_timesteps + pred_timesteps])
+        plt.plot(data[[variable_caused]].values[i + train_timesteps: i + train_timesteps + pred_timesteps], label='True')
+        plt.legend()
+        plt.show()
+        #sys.exit(0)
+
+
+
+
 
 # Functions for names of rows and columns of output
 def subj_block_str(subject, block):

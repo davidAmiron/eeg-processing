@@ -48,13 +48,15 @@ print(a)
 """
 
 # Run granger causaity tests on data
-print('Running granger causation tests')
+"""print('Running granger causation tests')
 signal_cols = data['2b']['001']['01'].columns[2:]
 for block in blocks:
     result = granger_causation_matrix(data['2b'][subject][block], signal_cols, 10, test='params_ftest', print_results=True)
     print('Result:')
     print(result)
-    result.to_csv('{}/subj_{}_block_{}_causation.csv'.format(output_folder, subject, block))
+    result.to_csv('{}/subj_{}_block_{}_causation.csv'.format(output_folder, subject, block))"""
+
+modified_granger_test(data['2b']['001']['01'], 'signal_0', 'signal_27', 50, 0.1, 0.01, difference=True)
 
 run_time = datetime.now() - start_time
 print('Time to run: {}'.format(run_time))
