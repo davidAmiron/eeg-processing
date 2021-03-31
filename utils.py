@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.io
+import scipy.stats
 
 from statsmodels.tsa.api import VAR, AutoReg
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -52,7 +53,8 @@ def adf_test(series, signif=0.05, name='', print_results=False):
 
     return pvalue
 
-def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_diagonal=False, print_results=False):
+def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_diagonal=False,
+                             print_results=False, modified_granger=False):
     """Check Granger Causality of all possible combinations of the Time series.
 
     The rows are the response variable, columns are predictors. The values in the table 
@@ -67,32 +69,54 @@ def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_
         test: what test to use ('lrtest', 'params_ftest', 'ssr_chi2test', 'ssr_ftest')
         zero_diagonal: True to set all diagonal entries to zero
         print_results: True to print results
+        modified_granger: True to use modified granger causation
 
     Returns:
         Pandas Dataframe, matrix of causations. Each row is a response variable, and
         each column is a predictor (denoted by names ending in '_y' or '_x'). The pvalue
         reported is the minimum of the different lags up to max_lag
 
+    Notes:
+        Diagonal p-valeus are zeros, even when not processed with modified granger
+
     """
-    df = pd.DataFrame(np.zeros((len(variables), len(variables))), columns=variables, index=variables)
-    for col in df.columns:
-        for row in df.index:
+    df_pvals = pd.DataFrame(np.zeros((len(variables), len(variables))), columns=variables, index=variables)
+    if modified_granger:
+        df_fstats = pd.DataFrame(np.zeros((len(variables), len(variables))), columns=variables, index=variables)
+    for col in df_pvals.columns:
+        for row in df_pvals.index:
             if zero_diagonal and col == row:
-                df.loc[row, col] = 0
+                df_pvals.loc[row, col] = 0
                 continue
-            test_result = grangercausalitytests(data[[row, col]], maxlag=maxlag, verbose=print_results)
-            p_values = [round(test_result[i+1][0][test][1], 4) for i in range(maxlag)]
-            if print_results:
-                print(f'Y = {row}, X = {col}, P Values = {p_values}')
-            min_p_value = np.min(p_values)
-            df.loc[row, col] = min_p_value
-    df.columns = [var + '_x' for var in variables]
-    df.index = [var + '_y' for var in variables]
-    return df
+            if modified_granger:
+                if row == col:  # Bug if they are equal, and don't actually care about those results
+                    continue
+                f_stat, p_value = modified_granger_test(data, row, col, 100, 0.1, 0.01,
+                                                        var_calc_mode='point', difference=True)
+                print(f_stat, p_value)
+                df_pvals.loc[row, col] = p_value
+                df_fstats.loc[row, col] = f_stat
+
+            else:
+                test_result = grangercausalitytests(data[[row, col]], maxlag=maxlag, verbose=print_results)
+                p_values = [round(test_result[i+1][0][test][1], 4) for i in range(maxlag)]
+                if print_results:
+                    print(f'Y = {row}, X = {col}, P Values = {p_values}')
+                min_p_value = np.min(p_values)
+                df_pvals.loc[row, col] = min_p_value
+
+    df_pvals.columns = [var + '_x' for var in variables]
+    df_pvals.index = [var + '_y' for var in variables]
+    df_fstats.columns = [var + '_x' for var in variables]
+    df_fstats.index = [var + '_y' for var in variables]
+    if modified_granger:
+        return df_pvals, df_fstats
+    else:
+        return df_pvals
 
 def modified_granger_test(data_all, variable_caused, variable_causing, num_models,
-                          train_time, pred_ahead_time, lags=10, fs=2000, difference=False):
-    """Modified granger test
+                          train_time, pred_ahead_time, var_calc_mode='point', lags=10, fs=2000, difference=False):
+    """Modified granger test between two variables
 
     In calculation of the F statistic, instead of using RSS, use sum of squares of
     prediction error on unseen data. These values will come from fitting multiple
@@ -108,13 +132,21 @@ def modified_granger_test(data_all, variable_caused, variable_causing, num_model
         lags (int): Number of lags in models
         fs (int): Sampling frequency of data
         difference (bool): True to difference the data
+        var_calc_mode (string): This determines how a model contributes to the total sum of squared prediction errors.
+                                'point' - Only contribute the squared error of the forecast pred_ahead_time seconds
+                                          into the future
+                                'all'   - Add the squared error of prediction error from all of forecast up to
+                                          pred_ahead_time seconds
 
     Notes:
         Models are spaced out as much as possible along data
     """
+
+    if var_calc_mode not in ['point', 'all']:
+        raise ValueError('var_calc_mode must be \'point\' or \'all\', got {}'.format(var_calc_mode))
+        
     train_timesteps = int(train_time * fs)
     pred_timesteps = int(pred_ahead_time * fs)
-    print(data_all)
 
     #caused = data[[variable_caused]]
     #causing = data[[variable_causing]]
@@ -135,7 +167,6 @@ def modified_granger_test(data_all, variable_caused, variable_causing, num_model
 
     # Make sure enough samples are available
     num_samples = data.shape[0]
-    print('num_samples: {}'.format(num_samples))
     num_samples_req = train_timesteps + pred_timesteps + num_models - 1
     if num_samples_req > num_samples:
         raise ValueError('Number of samples required ({}) is greater than number of samples available ({}).'.format(
@@ -145,21 +176,24 @@ def modified_granger_test(data_all, variable_caused, variable_causing, num_model
     num_pred_available = num_samples - (train_timesteps + pred_timesteps)
     pred_spacing = int(num_pred_available / num_models)
 
+    squared_errors_sum_full = 0
+    squared_errors_sum_restricted = 0
     for i in range(0, num_pred_available, pred_spacing):
 
         # Create train and test data
-        print('i: {}, i + train_timesteps: {}'.format(i, i + train_timesteps))
+        #print('i: {}, i + train_timesteps: {}'.format(i, i + train_timesteps))
         train_full = data_full[i:i+train_timesteps]
         train_restricted = data_restricted[i:i+train_timesteps]
         
         forecast_input_full = train_full[-lags:]
         forecast_input_restricted = train_restricted[-lags:]
 
-        test_value = data_restricted.iloc[i + train_timesteps + pred_timesteps - 1]
+        test_value = data[[variable_caused]].values[i + train_timesteps + pred_timesteps - 1][0]
+        test_values_all = data[[variable_caused]].values[i + train_timesteps: i + train_timesteps + pred_timesteps].T[0]
 
         # Train models
         model_full = VAR(train_full.values)
-        model_restricted = AutoReg(train_restricted.values, lags)
+        model_restricted = AutoReg(train_restricted.values, lags, old_names=False)
 
         model_full_fitted = model_full.fit(lags)
         model_restricted_fit = model_restricted.fit()
@@ -175,15 +209,41 @@ def modified_granger_test(data_all, variable_caused, variable_causing, num_model
             pred_restricted = data[[variable_caused]].values[i + train_timesteps - 1] + pred_restricted.cumsum()
             #sys.exit(0)
 
-        print(pred_full)
+        if var_calc_mode == 'point':
+            squared_errors_sum_full += (test_value - pred_full[-1]) ** 2
+            squared_errors_sum_restricted += (test_value - pred_restricted[-1]) ** 2
+        elif var_calc_mode == 'all':
+            squared_errors_sum_full += np.sum(np.square(pred_full - test_values_all))
+            squared_errors_sum_restricted += np.sum(np.square(pred_restricted - test_values_all))
+        
+        """print('Full: {}\nRestricted: {}\nFull is less: \t\t\t\t{}'.format(squared_errors_sum_full,
+                                                                squared_errors_sum_restricted,
+                                                                squared_errors_sum_full < squared_errors_sum_restricted))"""
+
+        """print(pred_full)
         print(pred_restricted)
         plt.plot(pred_full, label='Full')
         plt.plot(pred_restricted, label='Restricted')
         print(data_restricted.values[i + train_timesteps: i + train_timesteps + pred_timesteps])
         plt.plot(data[[variable_caused]].values[i + train_timesteps: i + train_timesteps + pred_timesteps], label='True')
         plt.legend()
-        plt.show()
+        plt.show()"""
         #sys.exit(0)
+
+    # Calculate F-statistic
+    n = train_timesteps     # Number of datapoints for parameter estimation
+    param_count_full = np.prod(model_full_fitted.params.shape) / 2      # Devide by two because params are for predicting two values
+    param_count_restricted = len(model_restricted_fit.params)
+    #print('full: {}'.format(param_count_full))
+    #print('restricted: {}'.format(param_count_restricted))
+    #print('full sum: {}\nrestricted sum: {}'.format(squared_errors_sum_full, squared_errors_sum_restricted))
+    f_statistic = ((n - param_count_full) / (param_count_full - param_count_restricted)) \
+                    * ((squared_errors_sum_restricted - squared_errors_sum_full) / squared_errors_sum_full)
+    p_value = 1 - scipy.stats.f.cdf(f_statistic,
+                                    param_count_full - param_count_restricted,
+                                    n - param_count_full)
+    return f_statistic, p_value
+
 
 
 

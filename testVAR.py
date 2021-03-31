@@ -120,13 +120,17 @@ df_train, df_test = df[0:-nobs], df[-nobs:]
 # Difference dataframe to make it stationary (see article, am skipping some steps just to use the model)
 print("AHH")
 print(df_train.diff())
-sys.exit(0)
+#sys.exit(0)
 df_train_differenced = df_train.diff().dropna().diff().dropna()
 
 # Model with different orders
 model = VAR(df_train_differenced)
 for p in range(1, 10):
     result = model.fit(p)
+    print(dir(result))
+    print(result.coefs)
+    print(result.params.shape)
+    sys.exit(0)
     print('Lag Order: {}'.format(p))
     print('AIC : ', result.aic)
     print('BIC : ', result.bic)

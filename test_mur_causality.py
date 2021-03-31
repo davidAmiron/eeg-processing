@@ -18,7 +18,8 @@ start_time = datetime.now()
 
 if partition == 0:
     subject = '001'
-    blocks = ['01', '02', '03']
+    #blocks = ['01', '02', '03']
+    blocks = ['01']
 elif partition == 1:
     subject = '001'
     blocks = ['04', '05', '06']
@@ -48,15 +49,26 @@ print(a)
 """
 
 # Run granger causaity tests on data
-"""print('Running granger causation tests')
+print('Running granger causation tests')
 signal_cols = data['2b']['001']['01'].columns[2:]
 for block in blocks:
-    result = granger_causation_matrix(data['2b'][subject][block], signal_cols, 10, test='params_ftest', print_results=True)
-    print('Result:')
-    print(result)
-    result.to_csv('{}/subj_{}_block_{}_causation.csv'.format(output_folder, subject, block))"""
+    print('Running for subject {}, block {}'.format(subject, block))
+    #result = granger_causation_matrix(data['2b'][subject][block], signal_cols, 10, test='params_ftest',
+    #                                  print_results=True, modified_granger=False)
+    df_pvals, df_fstats = granger_causation_matrix(data['2b'][subject][block], signal_cols, 10, test='params_ftest',
+                                      print_results=True, modified_granger=True)
+    #print('Result:')
+    #print(result)
+    print('F Statistics:')
+    print(df_fstats)
+    print('p-values')
+    print(df_pvals)
+    #result.to_csv('{}/subj_{}_block_{}_causation.csv'.format(output_folder, subject, block))
+    df_pvals.to_csv('{}/subj_{}_block_{}_causation_pvals.csv'.format(output_folder, subject, block))
+    df_fstats.to_csv('{}/subj_{}_block_{}_causation_fstats.csv'.format(output_folder, subject, block))
 
-modified_granger_test(data['2b']['001']['01'], 'signal_0', 'signal_27', 50, 0.1, 0.01, difference=True)
+"""modified_granger_test(data['2b']['001']['01'], 'signal_0', 'signal_27', 50, 0.1, 0.01,
+                      var_calc_mode='all', difference=True)"""
 
 run_time = datetime.now() - start_time
 print('Time to run: {}'.format(run_time))
