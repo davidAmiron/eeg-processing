@@ -14,7 +14,7 @@ def main():
     num_blocks = 6
 
     if len(sys.argv) < 2:
-        print('Usage: python process_causality.py [database_loc]')
+        print('Usage: python linear_regression.py [database_loc]')
         sys.exit(1)
 
     database_loc = sys.argv[1]

@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.io
 import scipy.stats
+import scipy.linalg
 
 from statsmodels.tsa.api import VAR, AutoReg
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -113,6 +114,43 @@ def granger_causation_matrix(data, variables, maxlag, test='ssr_chi2test', zero_
         return df_pvals, df_fstats
     else:
         return df_pvals
+
+def fit_lookahead_ar(x, lookahead_distance, lags):
+    """Fit a lookahead autoregressive model
+
+    Args:
+        x (array_like): The data
+        lookahead_distance (int): How many steps ahead to predict
+        lags (int): The number of lags in the model
+
+    Returns:
+        The optimal parameters, solved using Levinson-Durbin. The first parameter (params[0]) is
+        the parameter for the latest value in the prediction regime, and the last param
+        (params[-1]) is the parameter for the earlist value.
+
+    """
+
+    # Create autocorrelation matrix
+    autocorr_row = [autocovariance(x, i) for i in range(lags)]
+    b = [autocovariance(x, i) for i in range(1 + lookahead_distance, 1 + lookahead_distance + lags)]
+    
+    # Solve toeplitz system
+    params = scipy.linalg.solve_toeplitz((autocorr_row, autocorr_row), b).T[0]
+    return params
+
+def autocovariance(x, index):
+    """Get the autocovariance of a time series, at an index
+
+    The time series should be stationary, with zero mean
+
+    Args:
+        x (array_like): The time series data
+        index (int): The index of autocovariance
+
+    """
+    n = len(x) - index
+    return np.sum(np.multiply(x[0:n], x[index:len(x)])) / n
+
 
 def modified_granger_test(data_all, variable_caused, variable_causing, num_models,
                           train_time, pred_ahead_time, var_calc_mode='point', lags=10, fs=2000, difference=False):
