@@ -364,3 +364,73 @@ def load_mur_data(database_loc, sub_ref_avg=False):
             pass
 
     return data, columns, recordings_index
+
+class RLS:
+    """Recursive Least Squares implementation"""
+
+    def __init__(self, p, lam, delta):
+        """Initialize RLS implementation
+
+        Args:
+            p (int): Filter order
+            lam (float): Forgetting factor
+            delta (float): Value for initializing P
+
+        """
+        assert(0 <= lam and lam <= 1)
+
+        self.p = p
+        self.lam = lam
+        self.delta = delta
+
+        self.w = np.array([])
+        self.w_prev = np.zeros((p + 1, 1))
+        self.P_prev = self.delta * np.eye(self.p + 1)
+
+    def update(self, x_n, d_n):
+        """Perform one recursive update of RLS
+
+        Args:
+            x_n (np.array): A column vector of lagged x values, with x_n at the top
+                            and x_{n-p} at the bottom. It should be of length p+1. If a row
+                            vector is passed in it will be converted correctly (the latest value
+                            should still be first)
+            d_n (int): The current variable being predicted
+
+        Returns:
+            w_n (np.array): The updated parameter vector
+
+        """
+        if len(x_n.shape) == 1:
+            x_n = x_n.reshape(-1, 1)
+
+        a_n = d_n - np.matmul(self.w_prev.T, x_n)
+        #print('Error: ', a_n)
+        g_n = np.matmul(self.P_prev, x_n) * (1 / (self.lam + np.matmul(np.matmul(x_n.T, self.P_prev), x_n)))
+        print('GGG', g_n)
+        P_n = (self.P_prev / self.lam) - (np.matmul(g_n, x_n.T) * (1 / self.lam) * self.P_prev)
+        w_n = self.w_prev + a_n * g_n
+        print(self.P_prev)
+        
+        self.w_prev = w_n
+        self.w = np.append(self.w, w_n)
+        self.P_prev = P_n
+
+        return w_n
+
+    def predict(self, x_n):
+        """Predict using the most recently calcualted weights
+
+        Args:
+            x_n (np.array): A column vector of lagged x values, with x_n at the top
+                            and x_{n-p} at the bottom. It should be of length p+1. If a row
+                            vector is passed in it will be converted correctly
+
+        """
+        if len(x_n.shape) == 1:
+            x_n = x_n.reshape(-1, 1)
+
+        print('Pred w ', self.w_prev.T)
+        print('x_n ', x_n)
+        #print(np.matmul(self.w_prev.T, x_n))
+        return np.matmul(self.w_prev.T, x_n)[0][0]
