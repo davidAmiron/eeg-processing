@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import scipy.io
 import scipy.stats
 import scipy.linalg
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 from statsmodels.tsa.api import VAR, AutoReg
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -366,15 +367,16 @@ def load_mur_data(database_loc, sub_ref_avg=False):
     return data, columns, recordings_index
 
 class RLS:
-    """Recursive Least Squares implementation"""
+    """Recursive Least Squares implementation for lookahead"""
 
-    def __init__(self, p, lam, delta):
+    def __init__(self, p, lam, delta, l):
         """Initialize RLS implementation
 
         Args:
             p (int): Filter order
             lam (float): Forgetting factor
             delta (float): Value for initializing P
+            l (int): Lookahead distance
 
         """
         assert(0 <= lam and lam <= 1)
@@ -382,10 +384,74 @@ class RLS:
         self.p = p
         self.lam = lam
         self.delta = delta
+        self.l = l
 
         self.w = np.array([])
         self.w_prev = np.zeros((p + 1, 1))
         self.P_prev = self.delta * np.eye(self.p + 1)
+
+    def fit(self, data_train):
+        """Move through data_train updating weights
+
+        Args:
+            data_train (np.array): The data to train with
+
+        Returns:
+            predictions (np.array): Array of train predictions, the same length as data_train. The first l
+                                    values will be NaN
+            mse (float): Mean Squared Error of predictions
+            mae (float): Mean Absolute Error of predictions
+
+        """
+
+        # x is feature series, d is the predicting series
+        # Put zeros of length p for initialization
+        # The zeros in front of d are unnecessary but made the indices work out nicer
+        x = np.concatenate([np.zeros(self.p), data_train])
+        N = len(x)
+
+        train_pred = np.zeros_like(data_train)
+        train_pred[:self.l] = np.NaN
+        
+        # Train
+        """for n in range(self.p + self.l, N):
+            train_point = x[n-self.p-self.l:n-self.l+1][::-1]
+            self.update(train_point, x[n])
+            train_pred[n] = self.predict(train_point)"""
+
+        for n in range(len(data_train) - self.l):
+            train_point = x[n:n+self.p+1][::-1]
+            self.update(train_point, x[n+self.p+self.l])
+            train_pred[n+self.l] = self.predict(train_point)
+
+        return train_pred, \
+               mean_squared_error(data_train[self.l:], train_pred[self.l:]), \
+               mean_absolute_error(data_train[self.l:], train_pred[self.l:])
+
+    def test(self, data_test):
+        """Test on data_test, and return the results and accuracy scores
+
+        Args:
+            data_test (np.array): The data to test on
+
+        Returns:
+            predictions, mse, mae
+
+            predictions (np.array): Array of predictions, the same length as data_test. The first
+                                    lag+lookahead values will be np.NaN
+            mse (float): Mean Squared Error of predictions
+            mae (float): Mean Absolute Error of predictions
+
+        """
+
+        test_pred = np.empty_like(data_test)
+        test_pred[:self.l+self.p] = np.NaN
+        for n in range(self.p+self.l, len(data_test)):
+            test_pred[n] = self.predict(data_test[n-self.p-self.l:n-self.l+1][::-1])
+
+        return test_pred, \
+               mean_squared_error(data_test[self.p+self.l:], test_pred[self.p+self.l:]), \
+               mean_absolute_error(data_test[self.p+self.l:], test_pred[self.p+self.l:])
 
     def update(self, x_n, d_n):
         """Perform one recursive update of RLS
@@ -407,13 +473,14 @@ class RLS:
         a_n = d_n - np.matmul(self.w_prev.T, x_n)
         #print('Error: ', a_n)
         g_n = np.matmul(self.P_prev, x_n) * (1 / (self.lam + np.matmul(np.matmul(x_n.T, self.P_prev), x_n)))
-        print('GGG', g_n)
-        P_n = (self.P_prev / self.lam) - (np.matmul(g_n, x_n.T) * (1 / self.lam) * self.P_prev)
+        #print('G', g_n.T)
+        P_n = (self.P_prev / self.lam) - (np.matmul(np.matmul(g_n, x_n.T) * (1 / self.lam), self.P_prev))
+        #print('Hmm', np.matmul(g_n, x_n.T))
         w_n = self.w_prev + a_n * g_n
-        print(self.P_prev)
+        #print('P ', self.P_prev)
         
         self.w_prev = w_n
-        self.w = np.append(self.w, w_n)
+        #self.w = np.append(self.w, w_n)
         self.P_prev = P_n
 
         return w_n
@@ -430,7 +497,22 @@ class RLS:
         if len(x_n.shape) == 1:
             x_n = x_n.reshape(-1, 1)
 
-        print('Pred w ', self.w_prev.T)
-        print('x_n ', x_n)
+        #print('Pred w ', self.w_prev.T)
+        #print('x_n ', x_n)
         #print(np.matmul(self.w_prev.T, x_n))
         return np.matmul(self.w_prev.T, x_n)[0][0]
+
+
+class SPARLS:
+    """Implementation of the SPARLS algorithm"""
+
+    def __init__(self, gamma, alpha):
+        self.gamma = gamma
+        self.alpha = alpha
+
+    def soft_threshold(self, x):
+        return np.sign(x) * np.maximum((np.abs(x) - (self.gamma * (self.alpha ** 2))), 0)
+
+
+    def lcem(self):
+        """Low-Complexity Expectation Maximization"""
