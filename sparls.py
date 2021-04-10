@@ -22,12 +22,38 @@ alpha = float(sys.argv[7])
 fs = 2000
 
 print('Loading data...')
-#data, columns, recordings_index = load_mur_data(database_loc, sub_ref_avg=True)
+data, columns, recordings_index = load_mur_data(database_loc, sub_ref_avg=True)
 print('Data loaded')
 
-#data_train = data['2b']['001']['01'][['signal_37']][:num_train].values.T[0]
-#data_test = data['2b']['001']['01'][['signal_37']][num_train:num_train + num_test].values.T[0]
+data_train = data['2b']['001']['01'][['signal_43']][:num_train].values.T[0]
+data_test = data['2b']['001']['01'][['signal_43']][num_train:num_train + num_test].values.T[0]
 
-sparls = SPARLS(2, 1)
-print(np.arange(-10, 10))
-print(sparls.soft_threshold(np.arange(-10, 10)))
+# Subtract mean
+if True:
+    data_train -= np.mean(data_train)
+    data_test -= np.mean(data_test)
+
+gamma = 0.005
+alpha = 0.2
+sigma = 1000
+sparls = SPARLS(gamma, alpha, sigma, 0.95, 100, 10, 50)
+data_train_pred, train_mse, train_mae = sparls.fit(data_train)
+data_test_pred, test_mse, test_mae = sparls.test(data_test)
+
+print('Train MSE: {}\n      MAE: {}'.format(train_mse, train_mae))
+print('Test MSE: {}\n    MAE: {}'.format(test_mse, test_mae))
+
+
+lw = 1
+plt.plot(data_train, label='True', linewidth=lw)
+plt.plot(data_train_pred, label='Predicted', linewidth=lw)
+plt.title('Train')
+plt.legend()
+
+plt.figure()
+plt.plot(data_test, label='True', linewidth=lw)
+plt.plot(data_test_pred, label='Predicted', linewidth=lw)
+plt.title('Test')
+plt.legend()
+
+plt.show()

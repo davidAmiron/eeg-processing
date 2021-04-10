@@ -296,13 +296,14 @@ def signal_index_str(index):
 def reference_index_str(index):
     return 'reference_{}'.format(index)
 
-def read_file_raw(database_loc, filename, sub_ref_avg):
+def read_file_raw(database_loc, filename, sub_ref_avg, subsample_rate=20):
     """Read a file in the database
 
     Args:
         database_loc (str): Location of MURIBCI folder
         filename (str): The file to read
         sub_ref_avg (bool): True to average the reference electrodes and subtract them from the signal
+        subsample_rate (int): Take every subsample_rate'th sample
     """
     raw_read = scipy.io.loadmat(os.path.join(database_loc, 'data/Exp2b', filename))
     if sub_ref_avg:
@@ -319,10 +320,10 @@ def read_file_raw(database_loc, filename, sub_ref_avg):
         columns.append(signal_index_str(i))
 
     all_data = np.hstack((raw_read['Reference'][0], raw_read['Signal'][0]))
-    df = pd.DataFrame(all_data, columns=columns)
+    df = pd.DataFrame(all_data[np.arange(0, all_data.shape[0], subsample_rate), :], columns=columns)
     return df
 
-def load_mur_data(database_loc, sub_ref_avg=False):
+def load_mur_data(database_loc, sub_ref_avg=False, subsample_rate=20):
     """Read in MURIBCI database
 
     Args:
@@ -354,7 +355,7 @@ def load_mur_data(database_loc, sub_ref_avg=False):
             experiment = file_fields[0]
             subject = file_fields[2]
             block = file_fields[3]
-            df = read_file_raw(database_loc, filename, sub_ref_avg=sub_ref_avg)
+            df = read_file_raw(database_loc, filename, sub_ref_avg=sub_ref_avg, subsample_rate=subsample_rate)
             columns = df.columns
 
             data.setdefault(experiment, {}).setdefault(subject, {})[block] = df
@@ -390,7 +391,7 @@ class RLS:
         self.w_prev = np.zeros((p + 1, 1))
         self.P_prev = self.delta * np.eye(self.p + 1)
 
-    def fit(self, data_train):
+    def fit(self, data_train, nostats=False, nopred=False):
         """Move through data_train updating weights
 
         Args:
@@ -422,13 +423,19 @@ class RLS:
         for n in range(len(data_train) - self.l):
             train_point = x[n:n+self.p+1][::-1]
             self.update(train_point, x[n+self.p+self.l])
-            train_pred[n+self.l] = self.predict(train_point)
+            if not nopred:
+                train_pred[n+self.l] = self.predict(train_point)
 
-        return train_pred, \
-               mean_squared_error(data_train[self.l:], train_pred[self.l:]), \
-               mean_absolute_error(data_train[self.l:], train_pred[self.l:])
+        if nopred and nostats:
+            return
+        elif not nopred and nostats:
+            return train_pred
+        else:
+            return train_pred, \
+                   mean_squared_error(data_train[self.l:], train_pred[self.l:]), \
+                   mean_absolute_error(data_train[self.l:], train_pred[self.l:])
 
-    def test(self, data_test):
+    def test(self, data_test, nostats=False):
         """Test on data_test, and return the results and accuracy scores
 
         Args:
@@ -449,9 +456,12 @@ class RLS:
         for n in range(self.p+self.l, len(data_test)):
             test_pred[n] = self.predict(data_test[n-self.p-self.l:n-self.l+1][::-1])
 
-        return test_pred, \
-               mean_squared_error(data_test[self.p+self.l:], test_pred[self.p+self.l:]), \
-               mean_absolute_error(data_test[self.p+self.l:], test_pred[self.p+self.l:])
+        if nostats:
+            return test_pred
+        else:
+            return test_pred, \
+                   mean_squared_error(data_test[self.p+self.l:], test_pred[self.p+self.l:]), \
+                   mean_absolute_error(data_test[self.p+self.l:], test_pred[self.p+self.l:])
 
     def update(self, x_n, d_n):
         """Perform one recursive update of RLS
@@ -506,13 +516,191 @@ class RLS:
 class SPARLS:
     """Implementation of the SPARLS algorithm"""
 
-    def __init__(self, gamma, alpha):
+    def __init__(self, gamma, alpha, sigma, lam, p, l, K):
+        """Instantiate the algorithm
+
+        Args:
+            gamma (float): The SPARLS gamma parameter
+            alpha (float): The SPARLS alpha parameter
+            sigma (float): The SPARLS sigma parameter
+            lam (float): The forgetting factor
+            p (int): Number of lags, or taps
+            l (int): Lookahead timesteps
+            K (int): EM number of steps
+
+        """
         self.gamma = gamma
         self.alpha = alpha
+        self.sigma = sigma
+        self.lam = lam
+        self.p = p
+        self.l = l
+        self.K = K
+
+        self.ga2 = self.gamma * (self.alpha ** 2)
+        #self.B = np.eye(self.p)
+        self.rng = np.random.default_rng(437)
+
+        self.init = False
 
     def soft_threshold(self, x):
-        return np.sign(x) * np.maximum((np.abs(x) - (self.gamma * (self.alpha ** 2))), 0)
+        return np.sign(x) * np.maximum((np.abs(x) - (self.gamma * self.ga2)), 0)
+
+    def lcem(self, B, u, w_hat, I_plus_km1, I_minus_km1):
+        """Low-Complexity Expectation Maximization
+
+        Args:
+            B (np.array): The B matrix
+            u (np.array): The u (vector???)
+            w_hat (np.array): The previous estimate of the weights, should be a column vector (I think?)
+            I_union (np.array): Union of I things
+
+        Notes:
+            See the paper and algorithm for actual details
+
+        """
+
+        # Make sure I_plus indexes into both r and B columns
+
+        r = np.matmul(B[:, I_plus_km1], w_hat[I_plus_km1]) + np.matmul(B[:, I_minus_km1], w_hat[I_minus_km1]) + u
+        I_plus = np.nonzero(r > self.ga2)[0]
+        I_minus = np.nonzero(r < -self.ga2)[0]
+        for l in range(self.K - 1):
+            r = np.matmul(B[:, I_plus], r[I_plus] - self.ga2) + np.matmul(B[:, I_minus], r[I_minus] + self.ga2) + u
+            I_plus = np.nonzero(r > self.ga2)[0]
+            I_minus = np.nonzero(r < -self.ga2)[0]
+
+        w = np.empty_like(r)
+        for i in range(len(r)):
+            if i in I_plus:
+                w[i] = r[i] - self.ga2
+            elif i in I_minus:
+                w[i] = r[i] + self.ga2
+            else:
+                w[i] = 0
+
+        return w, I_plus, I_minus
+
+    def update(self, x, d):
+        """Perform an update
+
+        Args:
+            x (np.array): The input vector. If not a column vector, will be converted. First value
+                          should be the most recent one
+            d (float): The desired output
+
+        """
+        if len(x.shape) == 1:
+            x = x.reshape(-1, 1)
+
+        if not self.init:
+            self.B = np.eye(self.p+1) - (((self.alpha ** 2) / (self.sigma ** 2)) * np.matmul(x, x.T))
+            self.u = ((self.alpha ** 2) / (self.sigma ** 2)) * x * d
+            self.I_plus_km1 = np.arange(self.p+1)
+            self.I_minus_km1 = np.arange(self.p+1)
+            #self.w = np.ones((self.p+1, 1))
+            self.w = self.rng.normal(0, 1/self.p, size=(self.p+1, 1))
+            #self.w = (self.rng.random((self.p+1, 1)) * 6) - 3
+            self.init = True
+
+        self.B = (self.lam * self.B) \
+                - (((self.alpha ** 2) / (self.sigma ** 2)) * np.matmul(x, x.T)) \
+                + ((1 - self.lam) * np.eye(self.p+1))
+        self.u = (self.lam * self.u) + (((self.alpha ** 2) / (self.sigma ** 2)) * d * x)
+        w_next, I_plus_km1, I_minus_km1 = self.lcem(self.B, self.u, self.w, self.I_plus_km1, self.I_minus_km1)
+        self.w = w_next
+        self.I_plus_km1 = I_plus_km1
+        self.I_minus_km1 = I_minus_km1
+        #print(self.w)
+
+    def fit(self, data_train):
+        """Move through data_train updating weights
+
+        Args:
+            data_train (np.array): The data to train with
+
+        Returns:
+            predictions (np.array): Array of train predictions, the same length as data_train. The first l
+                                    values will be NaN
+            mse (float): Mean Squared Error of predictions
+            mae (float): Mean Absolute Error of predictions
+
+        """
+
+        # x is feature series, d is the predicting series
+        # Put zeros of length p for initialization
+        # The zeros in front of d are unnecessary but made the indices work out nicer
+        #x = np.concatenate([np.zeros(self.p), data_train])
+        x = data_train
+        N = len(x)
+
+        # The index at which prediction starts
+        pred_start_index = self.l + self.p
+
+        train_pred = np.zeros_like(data_train)
+        train_pred[:pred_start_index] = np.NaN
+        
+        # Train
+        """for n in range(self.p + self.l, N):
+            train_point = x[n-self.p-self.l:n-self.l+1][::-1]
+            self.update(train_point, x[n])
+            train_pred[n] = self.predict(train_point)"""
+
+        for n in range(len(data_train) - self.l - self.p):
+            train_point = x[n:n+self.p+1][::-1]
+            self.update(train_point, x[n+self.p+self.l])
+            train_pred[n+pred_start_index] = self.predict(train_point)
+        print('w:\n', self.w)
+
+        return train_pred, \
+               mean_squared_error(data_train[pred_start_index:], train_pred[pred_start_index:]), \
+               mean_absolute_error(data_train[pred_start_index:], train_pred[pred_start_index:])
+
+    def predict(self, x):
+        """Predict using the most recently calcualted weights
+
+        Args:
+            x_n (np.array): A column vector of lagged x values, with x_n at the top
+                            and x_{n-p} at the bottom. It should be of length p+1. If a row
+                            vector is passed in it will be converted correctly
+
+        """
+        if len(x.shape) == 1:
+            x = x.reshape(-1, 1)
+
+        #print('Pred w ', self.w_prev.T)
+        #print('x_n ', x_n)
+        #print(np.matmul(self.w_prev.T, x_n))
+        return np.matmul(self.w.T, x)[0][0]
+
+    def test(self, data_test):
+        """Test on data_test, and return the results and accuracy scores
+
+        Args:
+            data_test (np.array): The data to test on
+
+        Returns:
+            predictions, mse, mae
+
+            predictions (np.array): Array of predictions, the same length as data_test. The first
+                                    lag+lookahead values will be np.NaN (check this)
+            mse (float): Mean Squared Error of predictions
+            mae (float): Mean Absolute Error of predictions
+
+        """
+
+        """test_pred = np.empty_like(data_test)
+        test_pred[:self.l+self.p] = np.NaN
+        for n in range(self.p+self.l, len(data_test)):
+            test_pred[n] = self.predict(data_test[n-self.p-self.l:n-self.l+1][::-1])"""
+
+        pred_start_index = self.l + self.p
+        test_pred = np.empty_like(data_test)
+        test_pred[:pred_start_index] = np.NaN
+        for n in range(len(data_test) - self.l - self.p):
+            test_pred[n+pred_start_index] = self.predict(data_test[n:n+self.p+1][::-1])
 
 
-    def lcem(self):
-        """Low-Complexity Expectation Maximization"""
+        return test_pred, \
+               mean_squared_error(data_test[pred_start_index:], test_pred[pred_start_index:]), \
+               mean_absolute_error(data_test[pred_start_index:], test_pred[pred_start_index:])

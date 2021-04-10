@@ -22,6 +22,7 @@ fs = 2000
 print('Loading data...')
 data, columns, recordings_index = load_mur_data(database_loc, sub_ref_avg=True)
 print('Data loaded')
+print(data['2b']['001']['01']['signal_10'].shape)
 
 # Create training and test sets
 signal_columns = columns[2:]
@@ -30,4 +31,4 @@ data_train = [data['2b']['001']['01'][[col]][:num_train].values.T[0] for col in 
 data_test = [data['2b']['001']['01'][[col]][num_train:num_train + num_test].values.T[0] for col in signal_columns]
 
 for i, (train_set, test_set) in enumerate(zip(data_train, data_test)):
-    print(i, train_set, test_set)
+    print(i, train_set.shape, test_set.shape)
