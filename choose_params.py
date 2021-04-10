@@ -144,14 +144,14 @@ if method == 'sparls':
     print('SPARLS Parameter Selection')
 
     sparls_stats_total = []
-    #lambdas = [0.8, 0.825, 0.85, 0.875, 0.9, 0.925, 0.95, 0.975]
-    lambdas = [0.8, 0.9, 0.975]
+    lambdas = [0.8, 0.825, 0.85, 0.875, 0.9, 0.925, 0.95, 0.975]
+    #lambdas = [0.8, 0.9, 0.975]
     for subject in range(1, num_subjects + 1):
         for block in range(1, num_blocks + 1):
             sub_str = '{:03d}'.format(subject)
             blk_str = '{:02d}'.format(block)
             print('Subject {}, block {}'.format(sub_str, blk_str))
-            for signal in columns[2:5]:
+            for signal in columns[2:]:
                 print('Processing signal {}'.format(signal))
                 data_train = data['2b'][sub_str][blk_str][[signal]][:num_train].values.T[0]
                 data_validate = data['2b'][sub_str][blk_str][[signal]][num_train:num_train + num_validate].values.T[0]
