@@ -25,7 +25,7 @@ num_blocks = 1 #6
 max_lags = 100
 lookahead = 10
 
-method = 'rls'
+method = 'sparls'
 
 stat_method = 'mae'
 def summary_stat(x, y):
@@ -138,6 +138,44 @@ if method == 'rls':
     print('Lambda chosen: {}'.format(rls_lambda_chosen))
     with open('rls_validation_stats.npy', 'wb') as fh:
         np.save(fh, rls_channel_means)
-
     print(rls_channel_means)
 
+if method == 'sparls':
+    print('SPARLS Parameter Selection')
+
+    sparls_stats_total = []
+    #lambdas = [0.8, 0.825, 0.85, 0.875, 0.9, 0.925, 0.95, 0.975]
+    lambdas = [0.8, 0.9, 0.975]
+    for subject in range(1, num_subjects + 1):
+        for block in range(1, num_blocks + 1):
+            sub_str = '{:03d}'.format(subject)
+            blk_str = '{:02d}'.format(block)
+            print('Subject {}, block {}'.format(sub_str, blk_str))
+            for signal in columns[2:5]:
+                print('Processing signal {}'.format(signal))
+                data_train = data['2b'][sub_str][blk_str][[signal]][:num_train].values.T[0]
+                data_validate = data['2b'][sub_str][blk_str][[signal]][num_train:num_train + num_validate].values.T[0]
+                data_train -= np.mean(data_train)
+                data_validate -= np.mean(data_validate)
+
+                lambda_stats = []
+                for lam in lambdas:
+                    print('Lambda: {}'.format(lam))
+                    gamma = 0.005
+                    alpha = 0.2
+                    sigma = 5000
+                    sparls = SPARLS(gamma, alpha, sigma, lam, max_lags, lookahead, 50)
+                    sparls.fit(data_train, nopred=True, nostats=True)
+                    validate_pred = sparls.test(data_validate, nostats=True)
+                    validate_stat = summary_stat(data_validate[max_lags+lookahead:], validate_pred[max_lags+lookahead:])
+                    lambda_stats.append(validate_stat)
+                sparls_stats_total.append(lambda_stats)
+
+    sparls_stats_total = np.array(sparls_stats_total)
+    sparls_channel_means = np.mean(sparls_stats_total, axis=0)
+    lambda_i = np.argmin(sparls_channel_means)
+    sparls_lambda_chosen = lambdas[lambda_i]
+    print('Lambda chosen: {}'.format(sparls_lambda_chosen))
+    with open('sparls_validation_stats.npy', 'wb') as fh:
+        np.save(fh, sparls_channel_means)
+    print(sparls_channel_means)

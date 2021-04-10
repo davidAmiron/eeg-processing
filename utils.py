@@ -613,7 +613,7 @@ class SPARLS:
         self.I_minus_km1 = I_minus_km1
         #print(self.w)
 
-    def fit(self, data_train):
+    def fit(self, data_train, nostats=False, nopred=False):
         """Move through data_train updating weights
 
         Args:
@@ -649,12 +649,18 @@ class SPARLS:
         for n in range(len(data_train) - self.l - self.p):
             train_point = x[n:n+self.p+1][::-1]
             self.update(train_point, x[n+self.p+self.l])
-            train_pred[n+pred_start_index] = self.predict(train_point)
-        print('w:\n', self.w)
+            if not nopred:
+                train_pred[n+pred_start_index] = self.predict(train_point)
+        #print('w:\n', self.w)
 
-        return train_pred, \
-               mean_squared_error(data_train[pred_start_index:], train_pred[pred_start_index:]), \
-               mean_absolute_error(data_train[pred_start_index:], train_pred[pred_start_index:])
+        if nostats and nopred:
+            return
+        elif not nopred and nostats:
+            return train_pred
+        else:
+            return train_pred, \
+                   mean_squared_error(data_train[pred_start_index:], train_pred[pred_start_index:]), \
+                   mean_absolute_error(data_train[pred_start_index:], train_pred[pred_start_index:])
 
     def predict(self, x):
         """Predict using the most recently calcualted weights
@@ -673,7 +679,7 @@ class SPARLS:
         #print(np.matmul(self.w_prev.T, x_n))
         return np.matmul(self.w.T, x)[0][0]
 
-    def test(self, data_test):
+    def test(self, data_test, nostats=False):
         """Test on data_test, and return the results and accuracy scores
 
         Args:
@@ -701,6 +707,9 @@ class SPARLS:
             test_pred[n+pred_start_index] = self.predict(data_test[n:n+self.p+1][::-1])
 
 
-        return test_pred, \
-               mean_squared_error(data_test[pred_start_index:], test_pred[pred_start_index:]), \
-               mean_absolute_error(data_test[pred_start_index:], test_pred[pred_start_index:])
+        if nostats:
+            return test_pred
+        else:
+            return test_pred, \
+                   mean_squared_error(data_test[pred_start_index:], test_pred[pred_start_index:]), \
+                   mean_absolute_error(data_test[pred_start_index:], test_pred[pred_start_index:])
