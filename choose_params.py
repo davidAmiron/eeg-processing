@@ -151,7 +151,7 @@ if method == 'sparls':
             sub_str = '{:03d}'.format(subject)
             blk_str = '{:02d}'.format(block)
             print('Subject {}, block {}'.format(sub_str, blk_str))
-            for signal in columns[2:]:
+            for signal in columns[:65]:
                 print('Processing signal {}'.format(signal))
                 data_train = data['2b'][sub_str][blk_str][[signal]][:num_train].values.T[0]
                 data_validate = data['2b'][sub_str][blk_str][[signal]][num_train:num_train + num_validate].values.T[0]
